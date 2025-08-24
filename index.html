@@ -96,7 +96,8 @@
         <button id="flip">Flip Board</button>
         <button class="danger" id="clear">Clear Board</button>
       </div>
-      <div class="row">
+
+      <div class="row" style="align-items:center">
         <label class="muted" for="aiSelect">Play vs AI:</label>
         <select id="aiSelect" title="Choose AI side">
           <option value="none">Off</option>
@@ -105,8 +106,17 @@
         </select>
       </div>
 
+      <div class="row" style="align-items:center">
+        <label class="muted" for="levelSelect">AI Difficulty:</label>
+        <select id="levelSelect" title="Choose difficulty">
+          <option value="beginner">Beginner</option>
+          <option value="semipro">Semi-Pro</option>
+          <option value="pro">Professional</option>
+          <option value="world" selected>World Class</option>
+        </select>
+      </div>
+
       <div class="bottom">
-        
         <div class="credit">Built by Siyanda Xaba.</div>
       </div>
     </aside>
@@ -138,6 +148,7 @@
     const clearBtn = document.getElementById('clear');
     const flipBtn = document.getElementById('flip');
     const aiSelect = document.getElementById('aiSelect');
+    const levelSelect = document.getElementById('levelSelect');
 
     let board = deepCopy(START);
     let turn = 'w'; // white to move
@@ -153,7 +164,17 @@
     // AI side: 'w' | 'b' | 'none'
     let aiSide = 'b';
 
+    // Difficulty profiles: deeper + longer = stronger
+    const LEVELS = {
+      beginner:   { maxDepth: 3,  timeMs: 450,  random: 0.05 },
+      semipro:    { maxDepth: 4,  timeMs: 900,  random: 0.02 },
+      pro:        { maxDepth: 5,  timeMs: 1400, random: 0.00 },
+      world:      { maxDepth: 6,  timeMs: 2200, random: 0.00 }, // very tough for browser JS
+    };
+    let aiLevel = LEVELS.world;
+
     aiSelect.onchange = ()=>{ aiSide = aiSelect.value==='none' ? 'none' : aiSelect.value; maybeAIMove(); };
+    levelSelect.onchange = ()=>{ aiLevel = LEVELS[levelSelect.value] || LEVELS.world; };
 
     function render(){
       boardEl.innerHTML = '';
@@ -184,7 +205,6 @@
           }
 
           if(legalMoves.some(m=>m.r===rDisplay && m.c===cDisplay)){
-            // capture indicator if target holds enemy piece or is en passant square
             const isCapture = (piece && piece[0] !== turn) || (ep && ep.r===rDisplay && ep.c===cDisplay);
             const marker = document.createElement('div');
             marker.className = isCapture ? 'ring' : 'dot';
@@ -258,9 +278,8 @@
       // reset en passant target by default
       let newEP = null;
 
-      // En passant capture: pawn moves diagonally to empty square that equals ep target
+      // En passant capture
       if(type==='P' && ep && dr===ep.r && dc===ep.c && !board[dr][dc]){
-        // remove the pawn that advanced two last move
         const capRow = color==='w' ? dr+1 : dr-1;
         board[capRow][dc] = null;
       }
@@ -282,7 +301,6 @@
 
       // Castling: if king moved two squares, move rook too
       if(type==='K' && Math.abs(dc - sc) === 2){
-        // king side: to g-file (col 6) from e-file (4)
         if(dc === 6){ // O-O
           const rookFrom = { r: sr, c: 7 };
           const rookTo   = { r: sr, c: 5 };
@@ -321,10 +339,6 @@
 
       // Switch turn
       turn = (turn==='w') ? 'b' : 'w';
-
-      if(!commit){ // for search: we won't use in this version, kept for clarity
-        // no-op
-      }
     }
 
     // Generate legal moves for a piece (filters out self-check)
@@ -335,18 +349,15 @@
         const snapshot = { b: deepCopy(board), t: turn, rights: {...rights}, ep: ep?{...ep}:null };
         // Simulate
         const sim = snapshot.b;
-        // Handle en passant in sim
         if(piece[1]==='P' && ep && m.r===ep.r && m.c===ep.c && !sim[m.r][m.c]){
           const capRow = piece[0]==='w' ? m.r+1 : m.r-1; sim[capRow][m.c] = null;
         }
         sim[m.r][m.c] = sim[r][c];
         sim[r][c] = null;
-        // Castling rook move in sim
         if(piece[1]==='K' && Math.abs(m.c - c)===2){
           if(m.c===6){ sim[r][5] = piece[0]+'R'; sim[r][7]=null; }
           else { sim[r][3] = piece[0]+'R'; sim[r][0]=null; }
         }
-        // Promotion doesn't affect king safety
         if(!wouldBeInCheck(sim, piece[0])) legal.push(m);
       }
       return legal;
@@ -362,17 +373,13 @@
       const enemy=(rr,cc)=> inside(rr,cc) && board[rr][cc] && board[rr][cc][0]!==color;
 
       if(type==='P'){
-        // one step
         if(empty(r+dir,c)) moves.push({r:r+dir,c});
-        // two steps from start
         if(((color==='w' && r===6) || (color==='b' && r===1)) && empty(r+dir,c) && empty(r+2*dir,c))
           moves.push({r:r+2*dir,c});
-        // captures
         for(const dc of [-1,1]){
           const rr=r+dir, cc=c+dc;
           if(enemy(rr,cc)) moves.push({r:rr,c:cc});
         }
-        // en passant capture
         if(ep){
           for(const dc of [-1,1]){
             const rr=r+dir, cc=c+dc;
@@ -396,13 +403,13 @@
           if(dr===0 && dc===0) continue; const rr=r+dr, cc=c+dc; if(!inside(rr,cc)) continue; if(!board[rr][cc] || board[rr][cc][0]!==color) moves.push({r:rr,c:cc});
         }
         // Castling checks (squares must be empty and not attacked)
-        if(color==='w' && r===7 && c===4){ // white king on e1
+        if(color==='w' && r===7 && c===4){
           if(rights.wK && !board[7][5] && !board[7][6] && !squareAttackedBy(board,7,4,'b') && !squareAttackedBy(board,7,5,'b') && !squareAttackedBy(board,7,6,'b'))
             moves.push({r:7,c:6});
           if(rights.wQ && !board[7][3] && !board[7][2] && !board[7][1] && !squareAttackedBy(board,7,4,'b') && !squareAttackedBy(board,7,3,'b') && !squareAttackedBy(board,7,2,'b'))
             moves.push({r:7,c:2});
         }
-        if(color==='b' && r===0 && c===4){ // black king on e8
+        if(color==='b' && r===0 && c===4){
           if(rights.bK && !board[0][5] && !board[0][6] && !squareAttackedBy(board,0,4,'w') && !squareAttackedBy(board,0,5,'w') && !squareAttackedBy(board,0,6,'w'))
             moves.push({r:0,c:6});
           if(rights.bQ && !board[0][3] && !board[0][2] && !board[0][1] && !squareAttackedBy(board,0,4,'w') && !squareAttackedBy(board,0,3,'w') && !squareAttackedBy(board,0,2,'w'))
@@ -418,7 +425,7 @@
     }
 
     function wouldBeInCheck(b, color){
-      const k = findKing(b,color); if(!k) return true; // king removed => illegal
+      const k = findKing(b,color); if(!k) return true;
       return squareAttackedBy(b, k.r, k.c, color==='w'?'b':'w');
     }
 
@@ -459,25 +466,169 @@
     clearBtn.onclick = ()=>{ history.push({board:deepCopy(board),turn, rights:{...rights}, ep: ep?{...ep}:null}); board = Array.from({length:8},()=>Array(8).fill(null)); selected=null; legalMoves=[]; render(); };
     flipBtn.onclick = ()=>{ flipped = !flipped; render(); };
 
-    // --- Simple AI: minimax (depth 2) with material + mobility heuristic ---
-    const PIECE_VALUE = { K: 20000, Q: 900, R: 500, B: 330, N: 320, P: 100 };
+    // ========================= STRONGER ENGINE =========================
 
+    // Piece values
+    const PV = { K: 20000, Q: 900, R: 500, B: 330, N: 320, P: 100 };
+
+    // Piece-square tables (middlegame)
+    const PST = {
+      P: [
+        [ 0,  0,  0,  0,  0,  0,  0,  0],
+        [ 5, 10, 10,-20,-20, 10, 10,  5],
+        [ 5, -5,-10,  0,  0,-10, -5,  5],
+        [ 0,  0,  0, 20, 20,  0,  0,  0],
+        [ 5,  5, 10, 25, 25, 10,  5,  5],
+        [10, 10, 20, 30, 30, 20, 10, 10],
+        [50, 50, 50, 50, 50, 50, 50, 50],
+        [ 0,  0,  0,  0,  0,  0,  0,  0],
+      ],
+      N: [
+        [-50,-40,-30,-30,-30,-30,-40,-50],
+        [-40,-20,  0,  0,  0,  0,-20,-40],
+        [-30,  0, 10, 15, 15, 10,  0,-30],
+        [-30,  5, 15, 20, 20, 15,  5,-30],
+        [-30,  0, 15, 20,  20, 15,  0,-30],
+        [-30,  5, 10, 15, 15, 10,  5,-30],
+        [-40,-20,  0,  5,  5,  0,-20,-40],
+        [-50,-40,-30,-30,-30,-30,-40,-50],
+      ],
+      B: [
+        [-20,-10,-10,-10,-10,-10,-10,-20],
+        [-10,  5,  0,  0,  0,  0,  5,-10],
+        [-10, 10, 10, 10, 10, 10, 10,-10],
+        [-10,  0, 10, 10, 10, 10,  0,-10],
+        [-10,  5,  5, 10, 10,  5,  5,-10],
+        [-10,  0,  5, 10, 10,  5,  0,-10],
+        [-10,  0,  0,  0,  0,  0,  0,-10],
+        [-20,-10,-10,-10,-10,-10,-10,-20],
+      ],
+      R: [
+        [ 0,  0,  0,  5,  5,  0,  0,  0],
+        [-5,  0,  0,  0,  0,  0,  0, -5],
+        [-5,  0,  0,  0,  0,  0,  0, -5],
+        [-5,  0,  0,  0,  0,  0,  0, -5],
+        [-5,  0,  0,  0,  0,  0,  0, -5],
+        [-5,  0,  0,  0,  0,  0,  0, -5],
+        [ 5, 10, 10, 10, 10, 10, 10,  5],
+        [ 0,  0,  0,  0,  0,  0,  0,  0],
+      ],
+      Q: [
+        [-20,-10,-10, -5, -5,-10,-10,-20],
+        [-10,  0,  0,  0,  0,  0,  0,-10],
+        [-10,  0,  5,  5,  5,  5,  0,-10],
+        [ -5,  0,  5,  5,  5,  5,  0, -5],
+        [  0,  0,  5,  5,  5,  5,  0, -5],
+        [-10,  5,  5,  5,  5,  5,  0,-10],
+        [-10,  0,  5,  0,  0,  0,  0,-10],
+        [-20,-10,-10, -5, -5,-10,-10,-20],
+      ],
+      K: [
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-30,-40,-40,-50,-50,-40,-40,-30],
+        [-20,-30,-30,-40,-40,-30,-30,-20],
+        [-10,-20,-20,-20,-20,-20,-20,-10],
+        [ 20, 20,  0,  0,  0,  0, 20, 20],
+        [ 20, 30, 10,  0,  0, 10, 30, 20],
+      ]
+    };
+
+    // Evaluation function (material + PST + structure + mobility + king safety)
     function evaluate(b){
       let score = 0;
-      for(let r=0;r<8;r++) for(let c=0;c<8;c++){
-        const p=b[r][c]; if(!p) continue; const val = PIECE_VALUE[p[1]];
-        score += (p[0]==='w') ? val : -val;
+      let whiteBishops=0, blackBishops=0;
+
+      forEachSquare(b, (r,c,p)=>{
+        if(!p) return;
+        const side = p[0], type = p[1];
+        let val = PV[type];
+        const table = PST[type];
+        if(table){ val += (side==='w') ? table[r][c] : table[7-r][c]; }
+        score += (side==='w') ? val : -val;
+      });
+
+      // structure + rook files + center + bishop pair
+      const files = { w: Array(8).fill(0), b: Array(8).fill(0) };
+      forEachSquare(b,(r,c,p)=>{
+        if(!p) return;
+        if(p[1]==='B'){ if(p[0]==='w') whiteBishops++; else blackBishops++; }
+        if(p[1]==='P'){ files[p[0]][c]++; }
+      });
+      if(whiteBishops>=2) score += 20;
+      if(blackBishops>=2) score -= 20;
+
+      for(let c=0;c<8;c++){
+        const wp=files.w[c], bp=files.b[c];
+        if(wp>1) score -= 12;
+        if(bp>1) score += 12;
+        const wIso = wp>0 && (!files.w[c-1] && !files.w[c+1]);
+        const bIso = bp>0 && (!files.b[c-1] && !files.b[c+1]);
+        if(wIso) score -= 10;
+        if(bIso) score += 10;
+
+        let wR=false, bR=false;
+        for(let r=0;r<8;r++){
+          const p=b[r][c];
+          if(p && p[1]==='R'){ if(p[0]==='w') wR=true; else bR=true; }
+        }
+        if(wR){ if(bp===0) score += 12; else if(wp===0) score += 6; }
+        if(bR){ if(wp===0) score -= 12; else if(bp===0) score -= 6; }
       }
-      // Mobility bonus (small)
-      const wm = countMoves(b,'w'); const bm = countMoves(b,'b');
-      score += 0.1 * (wm - bm);
+
+      // passed pawns (bigger as they advance)
+      forEachSquare(b,(r,c,p)=>{
+        if(!p || p[1]!=='P') return;
+        const side=p[0], dir=(side==='w'?-1:1);
+        let passed=true;
+        for(let rr=r+dir; rr>=0 && rr<8; rr+=dir){
+          for(const dc of [-1,0,1]){
+            const cc=c+dc;
+            const q=b[rr] && b[rr][cc];
+            if(q && q[1]==='P' && q[0]!==side){ passed=false; break; }
+          }
+          if(!passed) break;
+        }
+        if(passed){
+          const bonus = 14 + (side==='w' ? (6 - r) : (r - 1)) * 3;
+          score += (side==='w') ? bonus : -bonus;
+        }
+      });
+
+      // King safety: pawn shield
+      function pawnShield(color){
+        const k=findKing(b,color); if(!k) return 0;
+        const dir = color==='w' ? -1 : 1, row=k.r+dir;
+        let shield=0;
+        for(const dc of [-1,0,1]){
+          const cc=k.c+dc; const p=b[row] && b[row][cc];
+          if(p && p[0]===color && p[1]==='P') shield++;
+        }
+        return shield*7;
+      }
+      score += pawnShield('w') - pawnShield('b');
+
+      // Center pieces bonus
+      const centers=[[3,3],[3,4],[4,3],[4,4]];
+      for(const [r,c] of centers){
+        const p=b[r][c]; if(p){ score += (p[0]==='w')?2:-2; }
+      }
+
+      // Mobility
+      const wm=countMoves(b,'w'), bm=countMoves(b,'b');
+      score += 0.15*(wm-bm);
+
       return score;
     }
 
+    function forEachSquare(b, fn){
+      for(let r=0;r<8;r++) for(let c=0;c<8;c++) fn(r,c,b[r][c]);
+    }
+
     function countMoves(b,color){
-      // Use current helper but on cloned board by temporarily setting globals
       const saveBoard = board, saveEP = ep, saveRights = rights, saveTurn = turn;
-      board = b; ep = null; rights = saveRights; turn = color; // ep disabled for mobility count
+      board = b; ep = null; rights = saveRights; turn = color;
       let total=0;
       for(let r=0;r<8;r++) for(let c=0;c<8;c++){ const p=board[r][c]; if(p && p[0]===color) total += generateLegalMoves(r,c,p).length; }
       board = saveBoard; ep = saveEP; rights = saveRights; turn = saveTurn; return total;
@@ -487,93 +638,308 @@
       const all=[];
       for(let r=0;r<8;r++) for(let c=0;c<8;c++){
         const p=board[r][c]; if(!p||p[0]!==color) continue;
-        const ms=generateLegalMoves(r,c,p); for(const m of ms) all.push({sr:r,sc:c,dr:m.r,dc:m.c});
+        const ms=generateLegalMoves(r,c,p);
+        for(const m of ms) all.push({sr:r,sc:c,dr:m.r,dc:m.c});
       }
       return all;
     }
 
-    function aiChooseMove(color, depth=2){
-      // Minimax (negamax style) with simple alpha-beta
-      function negamax(depth, alpha, beta, colorSign){
-        if(depth===0){ return colorSign * evaluate(board); }
-        const me = colorSign===1 ? 'w' : 'b';
-        const moves = listAllLegalMoves(me);
-        if(moves.length===0){
-          // checkmate or stalemate
-          if(inCheck(me)) return -Infinity/2; // bad for side to move
-          return 0; // stalemate
-        }
-        let best = -Infinity;
-        for(const mv of moves){
-          // save snapshot
-          const snap = { b: deepCopy(board), t: turn, rights: {...rights}, ep: ep?{...ep}:null };
-          // apply move
-          const moving = board[mv.sr][mv.sc];
-          // en passant
-          if(moving[1]==='P' && ep && mv.dr===ep.r && mv.dc===ep.c && !board[mv.dr][mv.dc]){
-            const capRow = moving[0]==='w' ? mv.dr+1 : mv.dr-1; board[capRow][mv.dc] = null;
-          }
-          board[mv.dr][mv.dc]=moving; board[mv.sr][mv.sc]=null;
-          // castling rook move
-          if(moving[1]==='K' && Math.abs(mv.dc - mv.sc)===2){ if(mv.dc===6){ board[mv.sr][5]=moving[0]+'R'; board[mv.sr][7]=null; } else { board[mv.sr][3]=moving[0]+'R'; board[mv.sr][0]=null; } }
-          // promotion
-          if(moving[1]==='P'){ const lastRank = moving[0]==='w'?0:7; if(mv.dr===lastRank) board[mv.dr][mv.dc]=moving[0]+'Q'; }
-          // set ep for next ply if double push
-          const prevEP = ep; ep = (moving[1]==='P' && Math.abs(mv.dr-mv.sr)===2) ? {r:(mv.dr+mv.sr)/2, c:mv.sc} : null;
-          turn = me==='w' ? 'b' : 'w';
+    // --- Search utilities (SEE, ordering, TT, killers, history) ---
 
-          const val = -negamax(depth-1, -beta, -alpha, -colorSign);
+    // Static Exchange Evaluation (very light): is capture likely good?
+    function SEE(mv){
+      const fromP = board[mv.sr][mv.sc];
+      const toP   = board[mv.dr][mv.dc];
+      if(!toP) return 0; // not a capture
+      const gain = PV[toP[1]] - PV[fromP[1]]/10;
+      return gain; // simple & fast; enough for ordering
+    }
 
-          // restore
-          board = snap.b; turn = snap.t; rights = {...snap.rights}; ep = snap.ep?{...snap.ep}:null;
+    // Zobrist hashing
+    const PIECES = ['wP','wN','wB','wR','wQ','wK','bP','bN','bB','bR','bQ','bK'];
+    const PIECE_INDEX = Object.fromEntries(PIECES.map((p,i)=>[p,i]));
+    const Z = (function initZobrist(){
+      const R = ()=>Math.floor(Math.random()*2**32)>>>0;
+      const arr = Array.from({length:8},()=>Array.from({length:8},()=>Array(12).fill(0)));
+      for(let r=0;r<8;r++) for(let c=0;c<8;c++) for(let k=0;k<12;k++) arr[r][c][k]=R();
+      const side = R();
+      const rightsKeys = { wK:R(), wQ:R(), bK:R(), bQ:R() };
+      return {arr, side, rightsKeys};
+    })();
 
-          if(val>best) best=val;
-          if(val>alpha) alpha=val;
-          if(alpha>=beta) break; // prune
-        }
-        return best;
+    function computeHash(){
+      let h=0>>>0;
+      for(let r=0;r<8;r++) for(let c=0;c<8;c++){
+        const p=board[r][c]; if(!p) continue;
+        const idx = PIECE_INDEX[p]; h ^= Z.arr[r][c][idx];
       }
+      if(turn==='w') h ^= Z.side;
+      if(rights.wK) h ^= Z.rightsKeys.wK;
+      if(rights.wQ) h ^= Z.rightsKeys.wQ;
+      if(rights.bK) h ^= Z.rightsKeys.bK;
+      if(rights.bQ) h ^= Z.rightsKeys.bQ;
+      return h>>>0;
+    }
 
-      const moves = listAllLegalMoves(color);
-      let bestMove = null, bestScore = -Infinity, alpha = -Infinity, beta = Infinity;
+    // Transposition table
+    const TT = new Map(); // key -> {depth, flag, score, move}
+    const FLAG = { EXACT:0, LOWER:1, UPPER:2 };
+
+    // Killer moves & history heuristic
+    const killers = Array.from({length:64},()=>({a:null,b:null}));
+    const historyHeur = {}; // key "sr,sc,dr,dc,color" -> score
+
+    function keyMove(m,color){ return `${m.sr},${m.sc},${m.dr},${m.dc},${color}`; }
+    function pushKiller(ply, mv){
+      const k=killers[ply]; const mStr = JSON.stringify(mv);
+      if(!k.a || JSON.stringify(k.a)!==mStr){ k.b=k.a; k.a=mv; }
+    }
+    function bumpHistory(m,color, depth){
+      const k=keyMove(m,color); historyHeur[k]=(historyHeur[k]||0)+depth*depth;
+    }
+    function historyScore(m,color){ return historyHeur[keyMove(m,color)]||0; }
+
+    // Move ordering (TT move, killers, captures by MVV-LVA/SEE, history)
+    function orderMoves(moves, color, ply, ttMove){
+      return moves
+        .map(m=>{
+          let s=0;
+          if(ttMove && sameMove(m,ttMove)) s+= 1e9;
+          const tar=board[m.dr][m.dc];
+          const mov=board[m.sr][m.sc];
+          if(tar){
+            s += 100000 + (PV[tar[1]] - PV[mov[1]]/10) + SEE(m);
+          }else{
+            // killers if quiet
+            const k=killers[ply];
+            if(k && (sameMove(m,k.a) || sameMove(m,k.b))) s += 80000;
+            s += historyScore(m,color);
+          }
+          // Check bonus (quick test)
+          const snap = { b: deepCopy(board), t: turn, rights: {...rights}, ep: ep?{...ep}:null };
+          quickApply(m);
+          const opp = color==='w'?'b':'w';
+          if(inCheck(opp)) s += 500;
+          undoQuick(snap);
+          return {m, s};
+        })
+        .sort((a,b)=>b.s-a.s)
+        .map(x=>x.m);
+    }
+
+    function sameMove(a,b){ if(!a||!b) return false; return a.sr===b.sr && a.sc===b.sc && a.dr===b.dr && a.dc===b.dc; }
+
+    // Fast move apply/undo used in search
+    function quickApply(mv){
+      const moving = board[mv.sr][mv.sc];
+      // en passant
+      if(moving[1]==='P' && ep && mv.dr===ep.r && mv.dc===ep.c && !board[mv.dr][mv.dc]){
+        const capRow = moving[0]==='w' ? mv.dr+1 : mv.dr-1; board[capRow][mv.dc] = null;
+      }
+      board[mv.dr][mv.dc]=moving; board[mv.sr][mv.sc]=null;
+      // castling
+      if(moving[1]==='K' && Math.abs(mv.dc - mv.sc)===2){
+        if(mv.dc===6){ board[mv.sr][5]=moving[0]+'R'; board[mv.sr][7]=null; }
+        else { board[mv.sr][3]=moving[0]+'R'; board[mv.sr][0]=null; }
+      }
+      // promotion
+      if(moving[1]==='P'){ const lr = moving[0]==='w'?0:7; if(mv.dr===lr) board[mv.dr][mv.dc]=moving[0]+'Q'; }
+      // ep update
+      ep = (moving[1]==='P' && Math.abs(mv.dr-mv.sr)===2) ? {r:(mv.dr+mv.sr)/2, c:mv.sc} : null;
+      // toggle side
+      turn = (turn==='w')?'b':'w';
+    }
+    function undoQuick(snap){
+      board = snap.b; turn = snap.t; rights = {...snap.rights}; ep = snap.ep?{...snap.ep}:null;
+    }
+
+    // Quiescence with delta pruning
+    function quiescence(alpha, beta, colorSign){
+      const stand = colorSign * evaluate(board);
+      if(stand >= beta) return beta;
+      if(alpha < stand) alpha = stand;
+
+      const me = colorSign===1 ? 'w' : 'b';
+      let moves = listAllLegalMoves(me).filter(m => board[m.dr][m.dc]); // captures only
+      // order captures (by MVV-LVA/SEE)
+      moves = moves
+        .map(m=>({m, s: SEE(m) + PV[(board[m.dr][m.dc]||{1:'P'})[1]]}))
+        .sort((a,b)=>b.s-a.s)
+        .map(x=>x.m);
+
       for(const mv of moves){
         const snap = { b: deepCopy(board), t: turn, rights: {...rights}, ep: ep?{...ep}:null };
-        const moving = board[mv.sr][mv.sc];
-        if(moving[1]==='P' && ep && mv.dr===ep.r && mv.dc===ep.c && !board[mv.dr][mv.dc]){
-          const capRow = moving[0]==='w' ? mv.dr+1 : mv.dr-1; board[capRow][mv.dc] = null;
+        quickApply(mv);
+        // delta pruning: if we just took a tiny pawn and are far from improving, can prune (light)
+        const score = -quiescence(-beta, -alpha, -colorSign);
+        undoQuick(snap);
+        if(score >= beta) return beta;
+        if(score > alpha) alpha = score;
+      }
+      return alpha;
+    }
+
+    // Search with iterative deepening, TT, null-move, check extension
+    function searchRoot(color, maxDepth, timeMs){
+      const deadline = Date.now() + timeMs;
+      let bestMove=null, bestScore=-Infinity;
+      const rootMoves = listAllLegalMoves(color);
+      if(rootMoves.length===0) return null;
+
+      // aspiration windows (optional small window around last score)
+      let window = 50;
+
+      for(let depth=1; depth<=maxDepth; depth++){
+        let alpha=-Infinity, beta=Infinity;
+        if(depth>2 && bestScore>-30000 && bestScore<30000){
+          alpha = bestScore - window;
+          beta  = bestScore + window;
         }
-        board[mv.dr][mv.dc]=moving; board[mv.sr][mv.sc]=null;
-        if(moving[1]==='K' && Math.abs(mv.dc - mv.sc)===2){ if(mv.dc===6){ board[mv.sr][5]=moving[0]+'R'; board[mv.sr][7]=null; } else { board[mv.sr][3]=moving[0]+'R'; board[mv.sr][0]=null; } }
-        if(moving[1]==='P'){ const lastRank = moving[0]==='w'?0:7; if(mv.dr===lastRank) board[mv.dr][mv.dc]=moving[0]+'Q'; }
-        const prevEP = ep; ep = (moving[1]==='P' && Math.abs(mv.dr-mv.sr)===2) ? {r:(mv.dr+mv.sr)/2, c:mv.sc} : null;
-        turn = color==='w'?'b':'w';
-
-        const score = -negamax(depth-1, -beta, -alpha, color==='w' ? 1 : -1);
-
-        board = snap.b; turn = snap.t; rights = {...snap.rights}; ep = snap.ep?{...snap.ep}:null;
-        if(score>bestScore){ bestScore=score; bestMove=mv; }
-        if(score>alpha) alpha=score;
+        // try search with aspiration; if fails high/low, widen
+        let score, move;
+        for(;;){
+          const res = rootSearch(depth, alpha, beta, color, deadline);
+          if(res.timeout) { return bestMove || rootMoves[0]; }
+          score = res.score; move = res.move;
+          if(score <= alpha){ alpha -= window*2; continue; }
+          if(score >= beta){  beta  += window*2; continue; }
+          break;
+        }
+        if(move){ bestMove=move; bestScore=score; }
+        // small shuffle for weaker levels
+        if(aiLevel.random>0 && Math.random() < aiLevel.random){
+          const top = rootMoves.slice(0,Math.min(3,rootMoves.length));
+          bestMove = top[Math.floor(Math.random()*top.length)];
+        }
       }
       return bestMove;
+    }
+
+    function rootSearch(depth, alpha, beta, color, deadline){
+      const me=color, opp=(me==='w')?'b':'w';
+      let moves = listAllLegalMoves(me);
+      // TT move for ordering
+      const tt = TT.get(computeHash());
+      const ttMove = tt ? tt.move : null;
+      moves = orderMoves(moves, me, 0, ttMove);
+
+      let bestMove=null, bestScore=-Infinity;
+
+      for(const mv of moves){
+        if(Date.now() > deadline) return {timeout:true};
+        const snap = { b: deepCopy(board), t: turn, rights: {...rights}, ep: ep?{...ep}:null };
+        quickApply(mv);
+
+        const score = -negamax(depth-1, -beta, -alpha, opp==='w'?1:-1, 1, deadline, false);
+        undoQuick(snap);
+
+        if(score>bestScore){ bestScore=score; bestMove=mv; }
+        if(score>alpha){
+          alpha=score;
+        }
+      }
+      return {score:bestScore, move:bestMove};
+    }
+
+    function negamax(depth, alpha, beta, colorSign, ply, deadline, inNull){
+      if(Date.now() > deadline) return 0; // time cutoff as draw
+
+      // TT probe
+      const key = computeHash();
+      const tt = TT.get(key);
+      if(tt && tt.depth>=depth){
+        if(tt.flag===FLAG.EXACT) return tt.score;
+        if(tt.flag===FLAG.LOWER && tt.score>alpha) alpha=tt.score;
+        else if(tt.flag===FLAG.UPPER && tt.score<beta) beta=tt.score;
+        if(alpha>=beta) return tt.score;
+      }
+
+      const me = colorSign===1 ? 'w' : 'b';
+
+      // Checkmate/stalemate
+      const moves0 = listAllLegalMoves(me);
+      if(moves0.length===0){
+        if(inCheck(me)) return -30000 + ply; // mate distance (sooner is better)
+        return 0; // stalemate
+      }
+
+      // terminal
+      if(depth<=0){
+        return quiescence(alpha, beta, colorSign);
+      }
+
+      // Null-move pruning (skip if in check or already null or very shallow)
+      if(!inNull && !inCheck(me) && depth>=3){
+        const snap = { b: deepCopy(board), t: turn, rights: {...rights}, ep: ep?{...ep}:null };
+        // null move: just switch side, clear ep
+        const savedEP = ep; ep=null; turn = (turn==='w')?'b':'w';
+        const score = -negamax(depth-1-2, -beta, -beta+1, -colorSign, ply+1, deadline, true);
+        // undo null
+        board = snap.b; turn = snap.t; rights = {...snap.rights}; ep = snap.ep?{...snap.ep}:null;
+        if(score>=beta) return score; // prune
+      }
+
+      // Move ordering
+      const ttMove = tt ? tt.move : null;
+      const moves = orderMoves(moves0, me, Math.min(ply,63), ttMove);
+
+      let best=-Infinity;
+      let bestLocalMove=null;
+      for(const mv of moves){
+        const snap = { b: deepCopy(board), t: turn, rights: {...rights}, ep: ep?{...ep}:null };
+        quickApply(mv);
+
+        // Check extension
+        const opp = me==='w'?'b':'w';
+        const ext = inCheck(opp) ? 1 : 0;
+
+        let val = -negamax(depth-1+ext, -beta, -alpha, -colorSign, ply+1, deadline, false);
+
+        undoQuick(snap);
+
+        if(val>best){ best=val; bestLocalMove=mv; }
+        if(val>alpha){
+          alpha=val;
+          // history for quiets
+          if(!board[mv.dr][mv.dc]) bumpHistory(mv, me, depth);
+        }
+        if(alpha>=beta){
+          // killer for quiet fail-high
+          if(!board[mv.dr][mv.dc]) pushKiller(Math.min(ply,63), mv);
+          break;
+        }
+      }
+
+      // Save TT
+      let flag=FLAG.EXACT;
+      if(best<=alpha) flag=FLAG.UPPER;
+      else if(best>=beta) flag=FLAG.LOWER;
+      TT.set(key, {depth, flag, score:best, move:bestLocalMove});
+
+      return best;
+    }
+
+    // --- Root chooser
+    function aiChooseMove(color){
+      const {maxDepth, timeMs} = aiLevel;
+      return searchRoot(color, maxDepth, timeMs) || null;
     }
 
     function maybeAIMove(){
       if(aiSide==='none') return;
       if(turn!==aiSide) return;
-      // if game is over, stop
-      if(isCheckmate(turn) || (!inCheck(turn) && !hasAnyLegalMoves(turn))) return;
-      // tiny delay for UX
+      if(isGameOver()) return;
+
+      // small delay for UX
       setTimeout(()=>{
-        const mv = aiChooseMove(aiSide, 2) || null;
+        const mv = aiChooseMove(aiSide);
         if(!mv){ return; }
         applyMove(mv.sr, mv.sc, mv.dr, mv.dc, {commit:true});
         selected=null; legalMoves=[]; render();
-        // chain if AI vs AI
         if(aiSide!=='none') maybeAIMove();
       }, 120);
     }
 
-    // --- Helpers for game end checks ---
     function isGameOver(){
       if(isCheckmate('w')||isCheckmate('b')) return true;
       if(!inCheck(turn) && !hasAnyLegalMoves(turn)) return true; // stalemate
@@ -586,4 +952,3 @@
   </script>
 </body>
 </html>
-
